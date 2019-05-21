@@ -1,0 +1,396 @@
+
+
+#include <Bounce.h>
+#include <Audio.h>
+#include <Wire.h>//69
+#include <SPI.h>
+#include <SD.h>
+#include <SerialFlash.h>
+#include <SSD1306Ascii.h>
+#include <SSD1306AsciiWire.h> 
+
+AudioInputI2S  i2s1;
+
+AudioEffectDelay  delay1;
+
+AudioFilterBiquad biquad1;
+
+AudioMixer4 mixer4;
+
+
+
+
+
+AudioMixer4 mixer3;
+AudioAnalyzeRMS rms4;
+AudioAnalyzePeak  peak4;
+AudioMixer4 mixer5;
+
+AudioMixer4 mixer2;
+AudioAnalyzePeak  peak5;
+AudioAnalyzeRMS rms5;
+AudioAnalyzePeak  peak3;
+
+
+
+AudioAnalyzeRMS rms3;
+AudioAnalyzeRMS rms2;
+AudioAnalyzePeak  peak2;
+AudioEffectBitcrusher bitcrusher1;
+AudioMixer4 mixer1;
+AudioAnalyzePeak  peak1;
+AudioAnalyzeRMS rms1;
+AudioOutputI2S  i2s2;
+AudioConnection patchCord1(i2s1, 0, mixer2, 0);
+AudioConnection patchCord2(i2s1, 0, mixer5, 0);
+AudioConnection patchCord3(i2s1, 1, mixer2, 1);
+AudioConnection patchCord4(i2s1, 1, mixer5, 1);
+AudioConnection patchCord5(delay1, 0, mixer3, 0);
+AudioConnection patchCord6(delay1, 1, mixer3, 1);
+AudioConnection patchCord7( delay1, 2, mixer3, 2);
+AudioConnection patchCord8(delay1, 3, mixer3, 3);
+AudioConnection patchCord9(delay1, 4, mixer4, 0);
+AudioConnection patchCord10(delay1, 5, mixer4, 1); 
+AudioConnection patchCord11(delay1, 6, mixer4, 2); 
+AudioConnection patchCord12 (delay1, 7, mixer4, 3);
+AudioConnection patchCord13(biquad1, 0, mixer2, 2);
+AudioConnection patchCord14(biquad1, rms4);
+AudioConnection patchCord15(biquad1, peak4);
+AudioConnection patchCord16(mixer4, 0, mixer1, 1);
+AudioConnection patchCord17(mixer4, rms3);
+AudioConnection patchCord18(mixer4, peak3);
+AudioConnection patchCord19(mixer3, biquad1); 
+AudioConnection patchCord20(mixer3, rms2);
+AudioConnection patchCord21(mixer3, peak2);
+AudioConnection patchCord22(mixer5, bitcrusher1); 
+AudioConnection patchCord23(mixer5, 0, mixer1 , 3);
+AudioConnection patchCord24(mixer2, 0, mixer1 , 0);
+AudioConnection patchCord25(mixer2, delay1);
+AudioConnection patchCord26(mixer2, peak5);
+AudioConnection patchCord27(mixer2, rms5);
+AudioConnection patchCord28(bitcrusher1, 0, mixer1, 2);
+AudioConnection patchCord29(mixer1, 0, i2s2, 0);
+AudioConnection patchCord30(mixer1, 0, i2s2, 1);
+AudioConnection patchCord31(mixer1, peak1 );
+AudioConnection patchCord32(mixer1, rms1);
+AudioControlSGTL5000  sgtl5000_1;
+
+
+float pauses[]={0.602, 0.699, 0.788, 0.85 };
+
+
+const int pos1= 0;   //pin 0 in previous
+ const int pos2 = 1;   //pin 1 in previous
+int selectTop;
+int selectBtm;
+
+const int volPotPin = 21;
+int volRaw;// 96
+
+const  int vrx = A2;  //pin18
+const int vry =A3;    //pin19
+const int btn1 = 2;  //pin2 in previous
+int xpos;
+int ypos;
+int currentPress = 0;
+int lastPress =1; 
+
+
+
+int lastEffect = 0;
+int bitsCrushed = 0;int bitsSampleRate = 0;
+bool muted =false;
+Bounce stableBtn = Bounce(btn1, 15);
+
+int avgDelayTime(int joyPosition);
+SSD1306AsciiWire oled;
+#define I2C_ADDRESS 0x3C
+
+void setup(){
+  Serial.begin(9600);
+  Wire.begin();
+  oled.begin(&Adafruit128x32, I2C_ADDRESS);
+  oled.setFont(Arial14);
+  pinMode(pos1, INPUT_PULLUP);
+  pinMode(pos2, INPUT_PULLUP);
+  pinMode(btn1,INPUT_PULLUP);
+  sgtl5000_1.enable();
+  sgtl5000_1.volume(0.55);
+  sgtl5000_1.inputSelect(AUDIO_INPUT_MIC);
+  sgtl5000_1.micGain(36);
+  AudioMemory(200);
+}
+
+void loop(){
+  selectTop=digitalRead(pos1);
+  selectBtm=digitalRead(pos2);
+  xpos=analogRead(vrx);
+  ypos=analogRead(vry);
+  volRaw=analogRead(volPotPin);
+  if(stableBtn.update())
+  {
+       if(stableBtn.fallingEdge())
+       {
+            if (currentPress!=lastPress)
+            {
+                  oled.setFont(Arial_bold_14);
+                  oled.setCursor(65, 0);
+                  oled.clearToEOL(); 
+                  oled.print("  [MUTE]");
+                  oled.setFont(Arial14);  
+                  sgtl5000_1.muteLineout();
+                  sgtl5000_1.muteHeadphone();
+                  currentPress++;
+                  muted = true ;
+             }
+             else if (currentPress ==lastPress)
+             {
+                 oled.setCursor(65, 0);
+                 oled.clearToEOL();
+                  sgtl5000_1.unmuteLineout();       
+
+                  sgtl5000_1.unmuteHeadphone();
+                  lastPress++ ;
+                  muted =false;
+            }
+      }
+}
+
+float vol =(float)volRaw /1280.0; 
+sgtl5000_1.volume(vol);
+vol=map(vol,0,1023,0,100);
+vol=constrain(vol,0,100);
+if(muted==false)
+{
+  oled.setCursor(65,0);
+  oled.print("  Volume: ");
+  oled.print((int)(vol*137.5));
+  oled.print(" ");
+}
+
+if(selectTop==LOW)
+{
+  if(lastEffect==1)
+  {
+    oled.clear();
+    oled.setFont(Arial_bold_14);
+    oled.print("Reverb");
+    oled.setFont(Arial14);
+    oled.setCursor(65,2);
+    oled.print("ms");
+    oled.setCursor(0,2);
+    oled.print("Delay: ");
+  }
+
+
+
+
+
+
+
+
+oled.setCursor(40, 2);
+oled.clear(40, 63, 2, 4);
+oled.print(avgDelayTime(xpos));
+
+    reverb(xpos);
+    lastEffect = 1;
+}
+else if(selectBtm ==LOW)  {
+
+if(lastEffect==2)
+{
+
+oled.setFont(Arial_bold_14); 
+oled.clear();
+oled.print("Distortion"); 
+oled.setFont(Arial14);
+}
+
+oled.setCursor(0, 2);
+oled.print ("Bits: "); 
+oled.print(bitsCrushed);
+oled.print(" ");
+
+      
+oled .setCursor(40, 2); 
+oled.print(" Rate: ");
+oled.print((float)bitsSampleRate / 1000);
+oled.print("  ");
+
+
+
+
+oled.setCursor(105, 2);
+
+oled.print(" k z");
+
+distortion(xpos, ypos);
+
+lastEffect = 2;
+}
+else{
+
+  if (lastEffect ==3)
+
+  { 
+    oled.setFont(Arial_bold_14);
+
+
+    oled.clear();
+    oled.print("No Effect");
+    oled.setFont(Arial14);
+  }
+  passThru();
+  lastEffect =3;
+  }
+
+ }
+  
+
+
+
+void passThru()
+{
+
+  
+  mixer1.gain(0,0);
+  mixer1.gain(1,0);
+  
+  mixer1.gain(2, 0);
+  mixer1.gain(3, 0.7);
+ 
+}
+
+void reverb(int val1)
+
+ {    
+  mixer1.gain(0, 0.6);
+  mixer1.gain(1, 0.4);
+  
+  mixer1.gain(2, 0);
+  
+
+  mixer1.gain(3, 0);
+
+
+
+  mixer2.gain(0, 0.4);
+
+
+  mixer2.gain(1, 0.4);
+  
+  mixer2.gain(2, 0.25);
+
+
+  mixer3.gain(0, 0.2);
+
+  
+  mixer3.gain(1, 0.2);
+  
+  mixer3.gain(2, 0.2);
+  
+
+  mixer3.gain(3, 0.2);
+
+
+
+  mixer4.gain(0, 0.2);
+
+    
+  mixer4.gain(1, 0.2);
+
+  mixer4.gain(2, 0.2);
+  
+
+  mixer4.gain(3, 0.2);
+  Serial.println(val1);
+
+   biquad1.setLowpass(3, 4000, 0.699);
+if(val1 <  50)
+{
+  mixer1.gain(1, 0);  
+} 
+
+for (int i =0; i < 8; i++)
+{
+  if (i < 4)
+  {
+
+    delay1.delay(i, val1*pauses[i]); 
+  }
+
+  else if (i >=4)
+{
+  delay1.delay(i, val1*pauses[i - 4]); 
+
+}
+}
+}
+
+void distortion(int val1, int val2)
+{
+  mixer1.gain(0, 0);
+
+  
+
+  mixer1.gain(1, 0);
+
+
+  mixer1.gain(2, 0.6);
+
+
+  mixer1.gain(3, 0.4);
+
+
+  mixer5.gain(0,0.4);
+  mixer5.gain(1,0.4);
+
+
+
+val1 = map(val1, 0, 1023, 1, 16);
+float expx = 0.125*pow(val1, 2);
+val1 = constrain(val1,1,16);
+expx =constrain(expx, 1.0, 16.0);
+//bitsCrushed = expx;
+
+
+val2 = map(val2, 0, 1023, 0,44100);
+val2 =constrain(val2, 0, 44100);
+
+
+bitsSampleRate =val2; 
+
+//Serial monitor data for effect-tuning/troubleshooting
+ Serial.print ("Bits_crushed :");
+ Serial.print(expx);
+ Serial.print("  ");
+ Serial.print(" : ");   
+ Serial.print(val2); 
+ Serial.println(""); 
+ delay(50);  //Serial data delay
+
+//Bitcrusher effect
+
+bitcrusher1.bits(10);   //best value=10
+
+
+bitcrusher1.sampleRate(2000);   //best value=9000
+}
+
+int avgDelayTime(int joyPosition)
+ {
+  float  sum  = 0;  
+  int delayTime =0; 
+  for (int i =0; i < 3; i++)  
+  {
+    sum += pauses[i];
+  }
+
+  sum = sum / 4;  
+
+  delayTime = sum*joyPosition;
+
+  
+  return (int)delayTime;  
+}
